@@ -213,6 +213,7 @@ class GoldBacktester(QMainWindow):
             'predicts_x': [],
             'predicts_y': [],
             'colors': [], # List of brush colors
+            'successes': [], # List of bools
             'success_count': 0
         } for tf in self.timeframes}
 
@@ -710,6 +711,7 @@ class GoldBacktester(QMainWindow):
                 'predicts_x': [],
                 'predicts_y': [],
                 'colors': [],
+                'successes': [],
                 'success_count': 0
             }
             self.plot_items[tf].setData([], [])
@@ -768,6 +770,7 @@ class GoldBacktester(QMainWindow):
         d['actuals'].append(actual)
         d['predicts_x'].append(ts)
         d['predicts_y'].append(predicted)
+        d['successes'].append(is_success)
 
         # Color code: Green for success, Red for failure
         color = '#27ae60' if is_success else '#e74c3c'
@@ -838,33 +841,58 @@ class GoldBacktester(QMainWindow):
             indices = self.plot_data[tf]['indices']
             actuals = self.plot_data[tf]['actuals']
             predicts_y = self.plot_data[tf]['predicts_y']
+            successes = self.plot_data[tf]['successes']
 
             if not indices:
                 return
 
-            # Find closest timestamp using binary search
+            # Find closest timestamp using binary search and distance comparison
             import bisect
             idx_pos = bisect.bisect_left(indices, timestamp)
 
-            if 0 <= idx_pos < len(indices):
-                actual_ts = indices[idx_pos]
-                actual_val = actuals[idx_pos]
-                pred_val = predicts_y[idx_pos]
+            # Determine the closest index (left or right) to the cursor
+            if idx_pos == 0:
+                closest_idx = 0
+            elif idx_pos == len(indices):
+                closest_idx = len(indices) - 1
+            else:
+                # Compare distance to the points on either side
+                left_dist = abs(timestamp - indices[idx_pos - 1])
+                right_dist = abs(indices[idx_pos] - timestamp)
+                if left_dist < right_dist:
+                    closest_idx = idx_pos - 1
+                else:
+                    closest_idx = idx_pos
 
-                # Update crosshair
-                components['vLine'].setPos(actual_ts)
-                components['hLine'].setPos(actual_val)
+            if 0 <= closest_idx < len(indices):
+                actual_ts = indices[closest_idx]
+                actual_val = actuals[closest_idx]
+                pred_val = predicts_y[closest_idx]
+                is_success = successes[closest_idx]
+
+                # Update crosshair to follow cursor
+                components['vLine'].setPos(mousePoint.x())
+                components['hLine'].setPos(mousePoint.y())
 
                 # Update tooltip text
-                # Convert timestamp to human readable date
+                # Convert timestamp of the closest point to human readable date
                 time_str = pd.to_datetime(actual_ts, unit='s').strftime('%Y-%m-%d %H:%M')
+
+                # Calculate signed difference
+                diff = pred_val - actual_val
+
+                # Status and colors
+                status_color = "#27ae60" if is_success else "#e74c3c"
+                pred_color = "#27ae60" if pred_val > actual_val else "#e74c3c"
+
                 text = f"<span style='color: white'>Time: {time_str}</span><br>"
                 text += f"<span style='color: #3498db'>Actual: {actual_val:.2f}</span><br>"
-                text += f"<span style='color: #e74c3c'>Predicted: {pred_val:.2f}</span><br>"
-                text += f"<span style='color: #27ae60'>Diff: {abs(actual_val - pred_val):.2f}</span>"
+                text += f"<span style='color: {pred_color}'>Predicted: {pred_val:.2f}</span><br>"
+                text += f"<span style='color: {status_color}; font-weight: bold'>Diff: {diff:+.2f}</span>"
 
                 components['label'].setHtml(text)
-                components['label'].setPos(actual_ts, actual_val)
+                # Attach tooltip to cursor
+                components['label'].setPos(mousePoint.x(), mousePoint.y())
 
                 components['vLine'].show()
                 components['hLine'].show()
