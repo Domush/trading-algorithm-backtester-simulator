@@ -14,12 +14,79 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QTabWidget, QPushButton, QLabel,
                              QPlainTextEdit, QLineEdit, QFormLayout, QGroupBox,
                              QListWidget, QSplitter, QMessageBox, QCheckBox,
-                             QMenu)
+                             QMenu, QSlider)
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSettings, QTimer
 from PySide6.QtGui import QFont, QColor
 
 from data_engine import DataEngine
 from highlighter import PygmentsHighlighter
+
+# --- UI Components ---
+class RangeSlider(QWidget):
+    valueChanged = Signal(int, int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self.start_slider = QSlider(Qt.Horizontal)
+        self.end_slider = QSlider(Qt.Horizontal)
+
+        # Style sliders to be more compact
+        slider_style = """
+            QSlider::handle:horizontal {
+                background: #3498db;
+                border: 1px solid #555;
+                width: 14px;
+                height: 14px;
+                margin: -5px 0;
+                border_radius: 7px;
+            }
+            QSlider::groove:horizontal {
+                border: 1px solid #333;
+                height: 4px;
+                background: #121212;
+                margin: 2px 0;
+            }
+        """
+        self.start_slider.setStyleSheet(slider_style)
+        self.end_slider.setStyleSheet(slider_style)
+
+        layout.addWidget(self.start_slider)
+        layout.addWidget(self.end_slider)
+
+        self.start_slider.valueChanged.connect(self._handle_start_change)
+        self.end_slider.valueChanged.connect(self._handle_end_change)
+
+    def _handle_start_change(self, value):
+        if value > self.end_slider.value():
+            self.end_slider.setValue(value)
+        self.valueChanged.emit(self.start_slider.value(), self.end_slider.value())
+
+    def _handle_end_change(self, value):
+        if value < self.start_slider.value():
+            self.start_slider.setValue(value)
+        self.valueChanged.emit(self.start_slider.value(), self.end_slider.value())
+
+    def setRange(self, min_val, max_val):
+        self.start_slider.blockSignals(True)
+        self.end_slider.blockSignals(True)
+        self.start_slider.setRange(min_val, max_val)
+        self.end_slider.setRange(min_val, max_val)
+        self.start_slider.setValue(min_val)
+        self.end_slider.setValue(max_val)
+        self.start_slider.blockSignals(False)
+        self.end_slider.blockSignals(False)
+        self.valueChanged.emit(min_val, max_val)
+
+    def values(self):
+        return self.start_slider.value(), self.end_slider.value()
+
+    def setValues(self, low, high):
+        self.start_slider.setValue(low)
+        self.end_slider.setValue(high)
 
 # --- Worker Thread ---
 class BacktestWorker(QThread):
@@ -179,6 +246,14 @@ class GoldBacktester(QMainWindow):
         # Save history
         self.settings.setValue("history", self.code_history)
 
+        # Save date range if data is loaded
+        if hasattr(self, 'start_date_ref'):
+            low, high = self.range_slider.values()
+            start_date = self.start_date_ref + pd.Timedelta(days=low)
+            end_date = self.start_date_ref + pd.Timedelta(days=high)
+            self.settings.setValue("start_date", start_date.isoformat())
+            self.settings.setValue("end_date", end_date.isoformat())
+
     def load_settings(self):
         self.up_thresh.setText(self.settings.value("up_thresh", "10.0"))
         self.down_thresh.setText(self.settings.value("down_thresh", "2.0"))
@@ -215,6 +290,10 @@ class GoldBacktester(QMainWindow):
             for timestamp, code in self.code_history:
                 self.history_list.addItem(f"Revision {self.history_list.count()+1} - {timestamp}")
 
+        # Load date range
+        self.saved_start_date = self.settings.value("start_date", None)
+        self.saved_end_date = self.settings.value("end_date", None)
+
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -245,6 +324,22 @@ class GoldBacktester(QMainWindow):
         data_vbox.addWidget(self.status_label)
         data_group.setLayout(data_vbox)
         sidebar_layout.addWidget(data_group)
+
+        # Backtest Range Group
+        range_group = QGroupBox("Backtest Date Range")
+        range_vbox = QVBoxLayout()
+
+        self.range_slider = RangeSlider()
+        self.range_label = QLabel("All Data")
+        self.range_label.setStyleSheet("font-size: 9pt; color: #3498db;")
+        self.range_label.setWordWrap(True)
+
+        range_vbox.addWidget(self.range_label)
+        range_vbox.addWidget(self.range_slider)
+        range_group.setLayout(range_vbox)
+        sidebar_layout.addWidget(range_group)
+
+        self.range_slider.valueChanged.connect(self.on_range_changed)
 
         # Check feather existence and hide convert button if it exists
         if os.path.exists(self.data_engine.feather_path):
@@ -487,6 +582,37 @@ class GoldBacktester(QMainWindow):
             self.data_engine.load_data()
             self.status_label.setText("Data: Loaded")
             self.status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+
+            # Update date range slider
+            if self.data_engine.df is not None and not self.data_engine.df.empty:
+                min_date = self.data_engine.df.index.min().normalize()
+                max_date = self.data_engine.df.index.max().normalize()
+
+                self.start_date_ref = min_date
+                num_days = (max_date - min_date).days
+
+                self.range_slider.setRange(0, num_days)
+                self.update_range_label(0, num_days)
+
+                # Apply saved range if available
+                if self.saved_start_date and self.saved_end_date:
+                    try:
+                        s_dt = pd.to_datetime(self.saved_start_date)
+                        e_dt = pd.to_datetime(self.saved_end_date)
+
+                        # Calculate day offsets from min_date
+                        low = (s_dt.normalize() - min_date).days
+                        high = (e_dt.normalize() - min_date).days
+
+                        # Clamp to range
+                        low = max(0, min(num_days, low))
+                        high = max(0, min(num_days, high))
+
+                        self.range_slider.setValues(low, high)
+                        self.update_range_label(low, high)
+                    except Exception:
+                        pass # Ignore if saved dates are invalid
+
             # If we just loaded a CSV (and feather doesn't exist yet), show convert
             if not os.path.exists(self.data_engine.feather_path):
                 self.convert_btn.show()
@@ -494,6 +620,17 @@ class GoldBacktester(QMainWindow):
             self.status_label.setText("Data: Error")
             self.status_label.setStyleSheet("color: #c0392b; font-weight: bold;")
             QMessageBox.critical(self, "Error", f"Failed to load data: {str(e)}")
+
+    @Slot(int, int)
+    def on_range_changed(self, low, high):
+        self.update_range_label(low, high)
+
+    def update_range_label(self, low, high):
+         if not hasattr(self, 'start_date_ref'):
+             return
+         start_date = self.start_date_ref + pd.Timedelta(days=low)
+         end_date = self.start_date_ref + pd.Timedelta(days=high)
+         self.range_label.setText(f"Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 
     @Slot()
     def on_convert_feather(self):
@@ -586,8 +723,29 @@ class GoldBacktester(QMainWindow):
         }
         abort_range = float(self.abort_thresh.text())
 
+        # Get selected range
+        low_days, high_days = self.range_slider.values()
+        if hasattr(self, 'start_date_ref'):
+            start_dt = self.start_date_ref + pd.Timedelta(days=low_days)
+            end_dt = self.start_date_ref + pd.Timedelta(days=high_days)
+            # Ensure start_dt is start of day and end_dt is end of day
+            start_dt = start_dt.replace(hour=0, minute=0, second=0)
+            end_dt = end_dt.replace(hour=23, minute=59, second=59)
+        else:
+            # Fallback to full range if data not loaded properly
+            start_dt = self.data_engine.df.index.min()
+            end_dt = self.data_engine.df.index.max()
+
         for tf in self.active_timeframes:
             df_tf = self.data_engine.get_resampled_data(tf)
+
+            # Filter by date range
+            df_tf = df_tf[(df_tf.index >= start_dt) & (df_tf.index <= end_dt)]
+
+            if len(df_tf) < 11:
+                self.rate_labels[tf].setText("Insufficient Data")
+                continue
+
             worker = BacktestWorker(df_tf, code, tf, thresholds, toggles, abort_range)
             worker.progress.connect(self.update_plot)
             worker.finished.connect(self.on_worker_finished)
