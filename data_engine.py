@@ -2,13 +2,20 @@ import pandas as pd
 import os
 
 class DataEngine:
-    def __init__(self, csv_path):
+    def __init__(self, csv_path=None):
         self.csv_path = csv_path
-        self.feather_path = csv_path.replace('.csv', '.feather')
+        self.feather_path = csv_path.replace('.csv', '.feather') if csv_path else None
         self.df = None
 
+    def set_csv_path(self, csv_path):
+        self.csv_path = csv_path
+        self.feather_path = csv_path.replace('.csv', '.feather') if csv_path else None
+
     def load_data(self, force_csv=False):
-        if not force_csv and os.path.exists(self.feather_path):
+        if not self.csv_path:
+            raise ValueError("No CSV path provided.")
+
+        if not force_csv and self.feather_path and os.path.exists(self.feather_path):
             print(f"Loading data from {self.feather_path}...")
             self.df = pd.read_feather(self.feather_path)
             if 'Date' in self.df.columns:
@@ -22,7 +29,7 @@ class DataEngine:
             # Use float32 for memory efficiency as per Pro Tips
             float_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             self.df[float_cols] = self.df[float_cols].astype('float32')
-            
+
         return self.df
 
     def convert_to_feather(self):
@@ -39,7 +46,7 @@ class DataEngine:
         """
         if self.df is None:
             self.load_data()
-        
+
         # Map human-readable timeframes to pandas resampling strings
         tf_map = {
             '1m': '1min',
@@ -49,9 +56,9 @@ class DataEngine:
             '1h': '1h',
             '1d': '1d'
         }
-        
+
         tf = tf_map.get(timeframe, timeframe)
-        
+
         if tf == '1min':
             return self.df
 

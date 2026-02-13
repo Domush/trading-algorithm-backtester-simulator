@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QTabWidget, QPushButton, QLabel,
                              QPlainTextEdit, QLineEdit, QFormLayout, QGroupBox,
                              QListWidget, QSplitter, QMessageBox, QCheckBox,
-                             QMenu, QSlider)
+                             QMenu, QSlider, QFileDialog)
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSettings, QTimer
 from PySide6.QtGui import QFont, QColor
 
@@ -319,6 +319,7 @@ class GoldBacktester(QMainWindow):
         self.load_btn.clicked.connect(self.on_load_data)
         self.convert_btn = QPushButton("Convert to Feather")
         self.convert_btn.clicked.connect(self.on_convert_feather)
+        self.convert_btn.hide()
 
         # Status Indicator
         self.status_label = QLabel("Data: Not Loaded")
@@ -584,7 +585,27 @@ class GoldBacktester(QMainWindow):
 
     @Slot()
     def on_load_data(self):
+        # Determine the file path
+        file_path = None
+
+        # If the button was clicked, always show the dialog
+        if self.sender() == self.load_btn:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Open CSV Data", "data", "CSV Files (*.csv)"
+            )
+            if not file_path:
+                return
+        else:
+            # Startup or internal call - check if default exists
+            default_csv = "data/XAU_1m_data.csv"
+            default_feather = default_csv.replace('.csv', '.feather')
+            if os.path.exists(default_feather) or os.path.exists(default_csv):
+                file_path = default_csv
+            else:
+                return # No default data found, wait for user action
+
         try:
+            self.data_engine.set_csv_path(file_path)
             self.data_engine.load_data()
             self.status_label.setText("Data: Loaded")
             self.status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
@@ -620,8 +641,10 @@ class GoldBacktester(QMainWindow):
                         pass # Ignore if saved dates are invalid
 
             # If we just loaded a CSV (and feather doesn't exist yet), show convert
-            if not os.path.exists(self.data_engine.feather_path):
+            if self.data_engine.feather_path and not os.path.exists(self.data_engine.feather_path):
                 self.convert_btn.show()
+            else:
+                self.convert_btn.hide()
         except Exception as e:
             self.status_label.setText("Data: Error")
             self.status_label.setStyleSheet("color: #c0392b; font-weight: bold;")
