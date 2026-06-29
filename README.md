@@ -1,7 +1,8 @@
 # Gold Futures Backtester Pro
+
 <img width="1961" height="1400" alt="image" src="https://github.com/user-attachments/assets/37f42abb-cdfd-4a46-9dc7-4d6915bef0a4" />
 
-A modern, elegant desktop application for backtesting predictive Python functions on historical gold futures prices.
+A modern, elegant desktop application for backtesting predictive Python functions on historical gold futures prices with advanced account simulation and confidence-based trading strategies.
 
 ## Features
 
@@ -12,6 +13,21 @@ A modern, elegant desktop application for backtesting predictive Python function
 - **Multithreaded Engine**: High-performance backtesting that keeps the UI responsive.
 - **Data Management**: Efficient loading of large CSV datasets with Feather format conversion for speed.
 - **Customizable Logic**: User-defined success thresholds and auto-abort parameters.
+- **Futures Account Simulation**: Complete trading account simulation with:
+  - Configurable starting capital and leverage (1x-50x)
+  - Dynamic position sizing based on confidence levels
+  - Maximum position value limits with optional forced liquidation
+  - Real-time P&L and account value tracking
+  - Auto-abort when account falls below contract cost
+- **Confidence-Based Trading**: Predictions include confidence levels that drive position sizing:
+  - 90%+ confidence: 100% of available capital
+  - 80-90%: 75% of capital
+  - 70-80%: 50% of capital
+  - 60-70%: 25% of capital
+  - Below 60%: No position
+- **Prediction & Confidence Tuning**: Adjust prediction values and confidence levels with real-time sliders for strategy optimization.
+- **Advanced Prediction Models**: Includes multiple prediction algorithms (v1-v5) with trend analysis, moving averages, exponential smoothing, and downward trend constraints.
+- **Extended Historical Context**: Uses up to 100 historical data points for more accurate predictions.
 
 ## Installation
 
@@ -38,19 +54,34 @@ pip install pyside6 pyqtgraph pandas numpy pygments feather-format
 python main.py
 ```
 
-1. Select the desired timeframes in the sidebar.
-2. Write or edit your predictive function in the editor. The function must follow the signature:
+1. Configure futures account parameters:
+   - Set starting capital (default: $10,000)
+   - Adjust leverage (1x-50x, default: 12x)
+   - Optionally set maximum position value
+2. Select the desired timeframes in the sidebar.
+3. Write or edit your predictive function in the editor. The function must follow the signature:
 
-```python
-def predict(ohlcv_data):
-      # ohlcv_data is a numpy array of the last 10 rows
-      # returns a predicted price (float)
-      pass
-```
+   ```python
+   def predict(ohlcv_data):
+         # ohlcv_data is a numpy array of up to 100 historical rows (OHLCV format)
+         # Must return a tuple: (predicted_price, confidence_percentage)
+         # Example:
+         predicted_price = 1950.50
+         confidence = 75  # 0-100
+         return predicted_price, confidence
+   ```
 
-1. Click **Update / Validate** to check for syntax errors.
-2. Click **Start Backtest** to begin.
-3. Use the **Stop** button to halt a running backtest.
+4. Adjust thresholds and offsets as needed:
+   - **Up/Down thresholds**: Define success criteria for predictions
+   - **Auto-abort threshold**: Stop if prediction error exceeds this value
+   - **Prediction offset**: Add/subtract a fixed amount to all predictions
+   - **Confidence offset**: Adjust confidence levels up or down
+5. Click **Update / Validate** to check for syntax errors.
+6. Click **Start Backtest** to begin. Watch real-time updates of:
+   - Price predictions vs actual values
+   - Account value and invested capital
+   - Success rates across timeframes
+7. Use the **Stop** button to halt a running backtest.
 
 ## UI Controls
 
@@ -58,10 +89,21 @@ def predict(ohlcv_data):
 - **Stop**: Enabled only while a backtest is in progress.
 - **Update / Validate**: Compiles the current code and saves it to history if changed.
 - **Backtest History**: Click any revision to revert the editor to that version.
+- **Prediction Offset Slider**: Adjust predictions by -10.0 to +10.0 points.
+- **Confidence Offset Slider**: Adjust confidence levels by -80 to +80 percentage points.
+- **Sell Above Max Checkbox**: Automatically reduce positions that exceed maximum position value.
 
 ## Project Structure
 
-- `main.py`: Main application entry point and UI logic.
+- `main.py`: Main application entry point and UI logic with futures account simulation.
 - `data_engine.py`: Data loading and resampling engine.
 - `highlighter.py`: Syntax highlighter for the code editor.
-- `data/`: Directory for historical datasets.
+- `prediction_v1.py`: Basic prediction model (baseline).
+- `prediction_v2_1_10.py`: Intermediate prediction model.
+- `prediction_v3.py`: Local linear regression-based prediction with dynamic shift adjustment.
+- `prediction_v4.py`: Advanced multi-method ensemble with trend analysis, moving averages, and confidence scoring.
+- `prediction_v5.py`: Conservative prediction model with downward trend constraints.
+- `get_last_30_closes.py`: Utility script to fetch recent closing prices for any timeframe.
+- `data/`: Directory for historical datasets (CSV and Feather formats).
+- `PLAN.md`: Development roadmap and feature planning.
+- `CHANGELOG.md`: Detailed version history.
