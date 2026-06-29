@@ -1,8 +1,8 @@
-# Gold Futures Backtester Pro
+# Trading Algorithm Backtester Pro
 
 <img width="1961" height="1400" alt="image" src="https://github.com/user-attachments/assets/37f42abb-cdfd-4a46-9dc7-4d6915bef0a4" />
 
-A modern, elegant desktop application for backtesting predictive Python functions on historical gold futures prices with advanced account simulation and confidence-based trading strategies.
+A modern, elegant desktop application for backtesting predictive Python functions on historical prices with advanced account simulation and confidence-based trading strategies.
 
 ## Features
 
@@ -34,8 +34,8 @@ A modern, elegant desktop application for backtesting predictive Python function
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/gold-predictive-modeling.git
-cd gold-predictive-modeling
+git clone https://github.com/trading-algorithm-backtester-simulator.git
+cd trading-algorithm-backtester-simulator
 ```
 
 1. Install dependencies:
@@ -44,7 +44,7 @@ cd gold-predictive-modeling
 pip install pyside6 pyqtgraph pandas numpy pygments feather-format
 ```
 
-1. Ensure the data file exists at `data/XAU_1m_data.csv`.
+1. Ensure a historical price CSV-formatted OHLCV data file exists in `data`.
 
 ## Usage
 
@@ -95,7 +95,7 @@ python main.py
 
 ## Project Structure
 
-- `main.py`: Main application entry point and UI logic with futures account simulation.
+- `main.py`: Main application entry point and UI logic with account simulation.
 - `data_engine.py`: Data loading and resampling engine.
 - `highlighter.py`: Syntax highlighter for the code editor.
 - `prediction_v1.py`: Basic prediction model (baseline).
