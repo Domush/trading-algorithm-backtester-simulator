@@ -12,7 +12,8 @@ import numpy as np
 import PySide6 # Import PySide6 before pyqtgraph
 import pyqtgraph as pg
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QTabWidget, QPushButton, QLabel,
+                             QHBoxLayout, QRadioButton, QButtonGroup,
+                             QStackedWidget, QPushButton, QLabel,
                              QPlainTextEdit, QLineEdit, QFormLayout, QGroupBox,
                              QListWidget, QSplitter, QMessageBox, QCheckBox,
                              QMenu, QSlider, QFileDialog, QSpinBox)
@@ -284,14 +285,14 @@ class GoldBacktester(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gold Futures Backtester Pro")
-        self.resize(1400, 900)
+        self.resize(1900, 1400)
 
         self.settings = QSettings("GoldPredictive", "Backtester")
         self.data_engine = DataEngine("data/XAU_1m_data.csv")
         self.workers = {}
         self.code_history = [] # List of tuples: (timestamp, code)
         self.timeframes = ['1m', '5m', '15m', '30m', '1h', '1d']
-        self.active_timeframes = []
+        self.selected_timeframe = '1h'
         self.plot_components = {}
         self.account_plot_components = {}
 
@@ -357,12 +358,10 @@ class GoldBacktester(QMainWindow):
         self.settings.setValue("leverage", self.leverage_input.value())
         self.settings.setValue("max_position_value", self.max_position_value.text())
         self.settings.setValue("sell_above_max", self.sell_above_max_checkbox.isChecked())
-        self.settings.setValue("active_tab", self.tabs.currentIndex())
+        self.settings.setValue("active_timeframe", self.selected_timeframe)
+        self.settings.setValue("window_width", self.width())
+        self.settings.setValue("window_height", self.height())
         self.settings.setValue("current_code", self.code_editor.toPlainText())
-
-        # Save checkboxes
-        tf_states = {tf: cb.isChecked() for tf, cb in self.tf_checks.items()}
-        self.settings.setValue("tf_states", tf_states)
 
         # Save history
         self.settings.setValue("history", self.code_history)
@@ -399,17 +398,15 @@ class GoldBacktester(QMainWindow):
         sell_above_max = self.settings.value("sell_above_max", "false")
         self.sell_above_max_checkbox.setChecked(str(sell_above_max).lower() == 'true')
 
-        active_tab = self.settings.value("active_tab", 0)
-        self.tabs.setCurrentIndex(int(active_tab))
+        active_timeframe = self.settings.value("active_timeframe", self.selected_timeframe)
+        if active_timeframe in self.tf_radios:
+            self.selected_timeframe = active_timeframe
+            self.tf_radios[active_timeframe].setChecked(True)
+            self.plot_stack.setCurrentIndex(self.timeframes.index(self.selected_timeframe))
 
-        # Restore checkboxes
-        tf_states = self.settings.value("tf_states", {})
-        if tf_states:
-            for tf, checked in tf_states.items():
-                if tf in self.tf_checks:
-                    # QSettings returns strings for bools sometimes depending on platform
-                    is_checked = str(checked).lower() == 'true'
-                    self.tf_checks[tf].setChecked(is_checked)
+        width = int(self.settings.value("window_width", 1900))
+        height = int(self.settings.value("window_height", 1400))
+        self.resize(width, height)
 
         # Restore current code
         current_code = self.settings.value("current_code", "")
@@ -486,16 +483,21 @@ class GoldBacktester(QMainWindow):
             self.convert_btn.hide()
 
         # Timeframe Selection
-        tf_group = QGroupBox("Select Timeframes")
+        tf_group = QGroupBox("Select Timeframe")
         tf_vbox = QVBoxLayout()
-        self.tf_checks = {}
+        self.tf_radios = {}
+        self.tf_button_group = QButtonGroup(self)
+        self.tf_button_group.setExclusive(True)
         for tf in self.timeframes:
-            cb = QCheckBox(tf)
-            if tf == '1h': cb.setChecked(True) # Default
-            self.tf_checks[tf] = cb
-            tf_vbox.addWidget(cb)
+            rb = QRadioButton(tf)
+            self.tf_radios[tf] = rb
+            self.tf_button_group.addButton(rb)
+            tf_vbox.addWidget(rb)
+            if tf == self.selected_timeframe:
+                rb.setChecked(True)
         tf_group.setLayout(tf_vbox)
         sidebar_layout.addWidget(tf_group)
+        self.tf_button_group.buttonClicked.connect(self.on_timeframe_changed)
 
         # Thresholds
         thresh_group = QGroupBox("Success Thresholds")
@@ -618,6 +620,35 @@ class GoldBacktester(QMainWindow):
         self.history_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.history_list.customContextMenuRequested.connect(self.on_history_context_menu)
         hist_vbox.addWidget(self.history_list)
+
+        export_group = QGroupBox("Export")
+        export_layout = QVBoxLayout()
+
+        count_hbox = QHBoxLayout()
+        self.export_count_slider = QSlider(Qt.Horizontal)
+        self.export_count_slider.setRange(10, 100)
+        self.export_count_slider.setValue(50)
+        self.export_count_slider.setTickInterval(10)
+        self.export_count_slider.setTickPosition(QSlider.TicksBelow)
+        self.export_count_slider.valueChanged.connect(self.update_export_count_label)
+        self.export_count_label = QLabel("Export count: 50")
+        self.export_count_label.setStyleSheet("color: #dcdcdc;")
+        count_hbox.addWidget(self.export_count_label)
+        export_layout.addLayout(count_hbox)
+        export_layout.addWidget(self.export_count_slider)
+
+        button_hbox = QHBoxLayout()
+        self.copy_export_btn = QPushButton("Copy to Clipboard")
+        self.copy_export_btn.clicked.connect(self.copy_export_to_clipboard)
+        self.csv_export_btn = QPushButton("Export to CSV File")
+        self.csv_export_btn.clicked.connect(self.export_history_to_csv)
+        button_hbox.addWidget(self.copy_export_btn)
+        button_hbox.addWidget(self.csv_export_btn)
+        export_layout.addLayout(button_hbox)
+
+        export_group.setLayout(export_layout)
+        hist_vbox.addWidget(export_group)
+
         hist_group.setLayout(hist_vbox)
         sidebar_layout.addWidget(hist_group)
 
@@ -627,8 +658,8 @@ class GoldBacktester(QMainWindow):
         main_area = QWidget()
         main_area_layout = QVBoxLayout(main_area)
 
-        # Tab Widget for Charts
-        self.tabs = QTabWidget()
+        # Chart stack for single selected timeframe
+        self.plot_stack = QStackedWidget()
         self.plot_widgets = {}
         self.plot_items = {} # actual price line
         self.predict_items = {} # prediction scatter/line
@@ -650,7 +681,8 @@ class GoldBacktester(QMainWindow):
 
             # Success Rate Label
             rate_label = QLabel("Success Rate: 0.00%")
-            rate_label.setStyleSheet("font-size: 14pt; color: #00ff00;")
+            rate_label.setTextFormat(Qt.RichText)
+            rate_label.setStyleSheet("font-size: 14pt; color: #dcdcdc;")
             rate_label.setAlignment(Qt.AlignRight)
 
             tab_layout.addWidget(rate_label)
@@ -658,7 +690,7 @@ class GoldBacktester(QMainWindow):
 
             self.plot_widgets[tf] = pw
             self.rate_labels[tf] = rate_label
-            self.tabs.addTab(tab, tf)
+            self.plot_stack.addWidget(tab)
 
             # Lines
             self.plot_items[tf] = pw.plot(pen=pg.mkPen(color='#3498db', width=1.5), name="Actual")
@@ -718,7 +750,8 @@ class GoldBacktester(QMainWindow):
             pw.scene().sigMouseMoved.connect(lambda pos, t=tf: self.on_mouse_moved(pos, t))
             account_pw.scene().sigMouseMoved.connect(lambda pos, t=tf: self.on_account_mouse_moved(pos, t))
 
-        main_area_layout.addWidget(self.tabs, stretch=2)
+        self.plot_stack.setCurrentIndex(self.timeframes.index(self.selected_timeframe))
+        main_area_layout.addWidget(self.plot_stack, stretch=2)
 
         # Code Editor Section
         editor_group = QGroupBox("Predictive Function Editor")
@@ -793,14 +826,20 @@ class GoldBacktester(QMainWindow):
                 border: 1px solid #333;
                 padding: 4px;
             }
-            QTabWidget::pane { border: 1px solid #333; }
-            QTabBar::tab {
-                background: #222;
-                padding: 10px;
-                border: 1px solid #333;
+            QRadioButton {
+                color: #e0e0e0;
+                spacing: 8px;
             }
-            QTabBar::tab:selected {
-                background: #333;
+            QRadioButton::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #888;
+                border-radius: 8px;
+                background: #121212;
+            }
+            QRadioButton::indicator:checked {
+                background: #3498db;
+                border: 1px solid #3498db;
             }
             QListWidget {
                 background-color: #121212;
@@ -966,31 +1005,89 @@ class GoldBacktester(QMainWindow):
 
                 self.save_settings()
 
+    def get_export_dataframe(self):
+        if self.data_engine.df is None:
+            self.on_load_data()
+            if self.data_engine.df is None:
+                return pd.DataFrame()
+
+        selected_tf = self.selected_timeframe
+        low_days, high_days = self.range_slider.values()
+        if hasattr(self, 'start_date_ref'):
+            start_dt = self.start_date_ref + pd.Timedelta(days=low_days)
+            end_dt = self.start_date_ref + pd.Timedelta(days=high_days)
+            start_dt = start_dt.replace(hour=0, minute=0, second=0)
+            end_dt = end_dt.replace(hour=23, minute=59, second=59)
+        else:
+            start_dt = self.data_engine.df.index.min()
+            end_dt = self.data_engine.df.index.max()
+
+        df_tf = self.data_engine.get_resampled_data(selected_tf)
+        df_range = df_tf[(df_tf.index >= start_dt) & (df_tf.index <= end_dt)]
+        count = self.export_count_slider.value()
+        if df_range.empty:
+            return df_range
+        return df_range.tail(count)
+
+    def update_export_count_label(self, value):
+        self.export_count_label.setText(f"Export count: {value}")
+
+    def copy_export_to_clipboard(self):
+        df_export = self.get_export_dataframe()
+        if df_export.empty:
+            QMessageBox.warning(self, "Export Error", "No data available for export in the selected range.")
+            return
+        close_prices = df_export['Close'].astype(str).tolist()
+        clipboard_text = ",".join(close_prices)
+        QApplication.clipboard().setText(clipboard_text)
+        QMessageBox.information(self, "Export Complete", f"Copied {len(df_export)} close prices to clipboard.")
+
+    def export_history_to_csv(self):
+        df_export = self.get_export_dataframe()
+        if df_export.empty:
+            QMessageBox.warning(self, "Export Error", "No data available for export in the selected range.")
+            return
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "export.csv", "CSV Files (*.csv)")
+        if not file_path:
+            return
+        try:
+            df_export.to_csv(file_path)
+            QMessageBox.information(self, "Export Complete", f"Exported {len(df_export)} rows to {file_path}.")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to write CSV: {str(e)}")
+
     @Slot()
     def on_start_backtest(self):
         if not self.data_engine.df is not None:
             self.on_load_data()
 
-        self.active_timeframes = [tf for tf, cb in self.tf_checks.items() if cb.isChecked()]
-        if not self.active_timeframes:
-            QMessageBox.warning(self, "Warning", "Select at least one timeframe.")
+        selected_tf = self.selected_timeframe
+        if selected_tf not in self.timeframes:
+            QMessageBox.warning(self, "Warning", "Select a valid timeframe.")
             return
 
         # Reset plots
-        for tf in self.active_timeframes:
-            self.plot_data[tf] = {
-                'indices': [],
-                'actuals': [],
-                'predicts_x': [],
-                'predicts_y': [],
-                'confidences': [],
-                'colors': [],
-                'successes': [],
-                'success_count': 0
-            }
-            self.plot_items[tf].setData([], [])
-            self.predict_items[tf].setData([], [])
-            self.rate_labels[tf].setText("Success Rate: 0.00%")
+        self.plot_data[selected_tf] = {
+            'indices': [],
+            'actuals': [],
+            'predicts_x': [],
+            'predicts_y': [],
+            'confidences': [],
+            'colors': [],
+            'successes': [],
+            'success_count': 0
+        }
+        self.plot_items[selected_tf].setData([], [])
+        self.predict_items[selected_tf].setData([], [])
+        self.rate_labels[selected_tf].setStyleSheet("font-size: 14pt; color: #dcdcdc;")
+        self.rate_labels[selected_tf].setText("Success Rate: 0.00%")
+
+        # Autoscale charts at the beginning of the backtest
+        try:
+            self.plot_items[selected_tf].getViewBox().enableAutoRange()
+            self.account_plot_items[selected_tf].getViewBox().enableAutoRange()
+        except Exception:
+            pass
 
         code = self.code_editor.toPlainText()
         thresholds = {
@@ -1017,56 +1114,62 @@ class GoldBacktester(QMainWindow):
             end_dt = self.data_engine.df.index.max()
 
         start_capital = float(self.start_capital.text())
+        self.current_start_capital = start_capital
         leverage = float(self.leverage_input.value())
         max_position_value = float(self.max_position_value.text()) if self.max_position_value.text().strip() else 0.0
         sell_above_max = self.sell_above_max_checkbox.isChecked()
         prediction_offset = self.pred_offset_slider.value() / 10.0
         confidence_offset = self.conf_offset_slider.value()
 
-        for tf in self.active_timeframes:
-            self.account_data[tf] = {
-                'timestamps': [],
-                'invested': [],
-                'account_values': [],
-                'buy_timestamps': [],
-                'buy_values': [],
-                'sell_timestamps': [],
-                'sell_values': [],
-                'abort_timestamps': [],
-                'abort_values': [],
-                'final_timestamp': None,
-                'final_account_value': None,
-                'final_invested': None,
-                'last_account_value': None,
-                'last_invested': 0.0
-            }
-            self.account_plot_items[tf].setData([], [])
-            self.invested_plot_items[tf].setData([], [])
-            self.buy_plot_items[tf].setData([], [])
-            self.sell_plot_items[tf].setData([], [])
-            self.abort_plot_items[tf].setData([], [])
+        self.account_data[selected_tf] = {
+            'timestamps': [],
+            'invested': [],
+            'account_values': [],
+            'buy_timestamps': [],
+            'buy_values': [],
+            'sell_timestamps': [],
+            'sell_values': [],
+            'abort_timestamps': [],
+            'abort_values': [],
+            'final_timestamp': None,
+            'final_account_value': None,
+            'final_invested': None,
+            'last_account_value': None,
+            'last_invested': 0.0
+        }
+        self.account_plot_items[selected_tf].setData([], [])
+        self.invested_plot_items[selected_tf].setData([], [])
+        self.buy_plot_items[selected_tf].setData([], [])
+        self.sell_plot_items[selected_tf].setData([], [])
+        self.abort_plot_items[selected_tf].setData([], [])
 
-            df_tf = self.data_engine.get_resampled_data(tf)
+        df_tf = self.data_engine.get_resampled_data(selected_tf)
 
-            # Filter by date range
-            df_tf = df_tf[(df_tf.index >= start_dt) & (df_tf.index <= end_dt)]
+        # Filter by date range
+        df_tf = df_tf[(df_tf.index >= start_dt) & (df_tf.index <= end_dt)]
 
-            if len(df_tf) < 11:
-                self.rate_labels[tf].setText("Insufficient Data")
-                continue
-
-            worker = BacktestWorker(df_tf, code, tf, thresholds, toggles, abort_range, start_capital, leverage, max_position_value, sell_above_max, prediction_offset, confidence_offset)
+        if len(df_tf) < 11:
+            self.rate_labels[selected_tf].setText("Insufficient Data")
+        else:
+            worker = BacktestWorker(df_tf, code, selected_tf, thresholds, toggles, abort_range, start_capital, leverage, max_position_value, sell_above_max, prediction_offset, confidence_offset)
             worker.progress.connect(self.update_plot)
             worker.finished.connect(self.on_worker_finished)
             worker.error.connect(self.on_worker_error)
             worker.aborted.connect(self.on_worker_aborted)
             worker.abort_point.connect(self.on_abort_point)
 
-            self.workers[tf] = worker
+            self.workers[selected_tf] = worker
             worker.start()
 
         self.backtest_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+
+    @Slot()
+    def on_timeframe_changed(self, button):
+        selected_tf = button.text()
+        if selected_tf in self.timeframes:
+            self.selected_timeframe = selected_tf
+            self.plot_stack.setCurrentIndex(self.timeframes.index(selected_tf))
 
     @Slot(str, float, float, float, float, bool, float, float)
     def update_plot(self, tf, ts, actual, predicted, confidence_pct, is_success, invested_amount, account_value):
@@ -1144,14 +1247,24 @@ class GoldBacktester(QMainWindow):
         self.abort_plot_items[tf].setData(acc['abort_timestamps'], acc['abort_values'])
 
         rate = (d['success_count'] / len(d['indices']) * 100)
-        self.rate_labels[tf].setText(f"Success Rate: {rate:.2f}% | Account: ${account_value:,.2f}")
+        self.rate_labels[tf].setStyleSheet("font-size: 14pt; color: #dcdcdc;")
+        account_color = '#27ae60' if account_value > getattr(self, 'current_start_capital', 0.0) else '#ff4d4f' if account_value < getattr(self, 'current_start_capital', 0.0) else '#dcdcdc'
+        self.rate_labels[tf].setText(
+            f"Success Rate: <span style='color: #27ae60;'>{rate:.2f}%</span> | "
+            f"Account: <span style='color: {account_color};'>${account_value:,.2f}</span>"
+        )
 
     @Slot(str, float)
     def on_worker_finished(self, tf, rate):
         final_value = 0.0
         if tf in self.account_data and self.account_data[tf]['account_values']:
             final_value = self.account_data[tf]['account_values'][-1]
-        self.rate_labels[tf].setText(f"FINAL Success Rate: {rate:.2f}% | Final Account: ${final_value:,.2f}")
+        self.rate_labels[tf].setStyleSheet("font-size: 14pt; color: #dcdcdc;")
+        account_color = '#27ae60' if final_value > getattr(self, 'current_start_capital', 0.0) else '#ff4d4f' if final_value < getattr(self, 'current_start_capital', 0.0) else '#dcdcdc'
+        self.rate_labels[tf].setText(
+            f"FINAL Success Rate: <span style='color: #27ae60;'>{rate:.2f}%</span> | "
+            f"Final Account: <span style='color: {account_color};'>${final_value:,.2f}</span>"
+        )
         if tf in self.workers:
             del self.workers[tf]
         if not self.workers:
