@@ -145,6 +145,7 @@ class BacktestWorker(QThread):
             success_count = 0
             total_count = 0
             prev_position = 0
+            previous_predictions = []
 
             # Start from row 100
             if len(self.data) > 100:
@@ -162,9 +163,11 @@ class BacktestWorker(QThread):
                 ts = float(self.data.index[i].timestamp())
                 prev_close = self.data.iloc[i-1]['Close']
                 ohlcv_data = window[['Open', 'High', 'Low', 'Close', 'Volume']].values
+                close_prices = ohlcv_data[:, 3].tolist()
+                recent_predicted_prices = previous_predictions[-20:]
 
                 try:
-                    prediction_result = predict_func(ohlcv_data)
+                    prediction_result = predict_func(close_prices, recent_predicted_prices)
                 except Exception as e:
                     self.error.emit(f"Runtime error in prediction: {str(e)}")
                     return
@@ -178,6 +181,11 @@ class BacktestWorker(QThread):
                 predicted = float(predicted) + self.prediction_offset
                 confidence_pct = float(confidence_pct) + self.confidence_offset
                 confidence_pct = max(0.0, min(100.0, confidence_pct))
+
+                # Keep a rolling history of the last 20 predicted prices for the next call.
+                previous_predictions.append(predicted)
+                if len(previous_predictions) > 20:
+                    previous_predictions = previous_predictions[-20:]
 
                 # Check for abort
                 if abs(predicted - actual) > self.abort_range:
@@ -527,12 +535,12 @@ class GoldBacktester(QMainWindow):
         max_ticks_vbox = QVBoxLayout()
 
         self.max_ticks_slider = QSlider(Qt.Horizontal)
-        self.max_ticks_slider.setMinimum(10)
-        self.max_ticks_slider.setMaximum(30)
-        self.max_ticks_slider.setValue(30)
+        self.max_ticks_slider.setMinimum(1)
+        self.max_ticks_slider.setMaximum(20)
+        self.max_ticks_slider.setValue(5)
         self.max_ticks_slider.setSingleStep(1)
         self.max_ticks_slider.setPageStep(1)
-        self.max_ticks_label = QLabel("3000 ticks")
+        self.max_ticks_label = QLabel("500 ticks")
         self.max_ticks_label.setStyleSheet("font-size: 9pt; color: #3498db;")
 
         max_ticks_vbox.addWidget(self.max_ticks_label)
@@ -731,6 +739,11 @@ class GoldBacktester(QMainWindow):
         self.history_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.history_list.customContextMenuRequested.connect(self.on_history_context_menu)
         hist_vbox.addWidget(self.history_list)
+
+        self.clear_history_btn = QPushButton("Clear All History")
+        self.clear_history_btn.setToolTip("Keep only the original v1 code and remove all later history entries.")
+        self.clear_history_btn.clicked.connect(self.on_clear_history)
+        hist_vbox.addWidget(self.clear_history_btn)
 
         export_group = QGroupBox("Export")
         export_layout = QVBoxLayout()
@@ -1007,21 +1020,14 @@ class GoldBacktester(QMainWindow):
             with open("prediction_v1.py", "r") as f:
                 content = f.read()
 
-            # The requirement is def predict(ohlcv_data).
-            # The original code uses predict_next_number(data) and expects a 1D list of prices.
-            # We transform it to be compatible:
-            old_sig = "def predict_next_number(data):"
-            new_sig = "def predict(ohlcv_data):\n    # Extract Close prices (index 3) from OHLCV array\n    data = ohlcv_data[:, 3].tolist()"
-
-            content = content.replace(old_sig, new_sig)
-
+            # The requirement is def predict(close_prices, recent_predicted_prices).
             # Remove any example usage at the bottom to keep the editor clean
             if "# Example usage" in content:
                 content = content.split("# Example usage")[0].strip()
 
             self.code_editor.setPlainText(content)
         except Exception:
-            self.code_editor.setPlainText("def predict(ohlcv_data):\n    # ohlcv_data is 10x5 numpy array: [Open, High, Low, Close, Volume]\n    return ohlcv_data[-1, 3] + 1.0")
+            self.code_editor.setPlainText("def predict(close_prices, recent_predicted_prices):\n    # close_prices is the last 100 Close values from OHLCV data\n    # recent_predicted_prices is the previous 20 predicted prices\n    return close_prices[-1] + 1.0")
 
     @Slot()
     def on_load_data(self):
@@ -1124,9 +1130,8 @@ class GoldBacktester(QMainWindow):
             self.stop_btn.setEnabled(False)
             self.update_btn.setStyleSheet("background-color: #27ae60;")
 
-            # Save to history if changed
-            # Extract only the code from the tuples in self.code_history
-            if not self.code_history or self.code_history[-1][1] != code:
+            # Save to history only if the code is not already present in history
+            if not any(existing_code == code for _, existing_code in self.code_history):
                 timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
                 self.code_history.append((timestamp, code))
                 self.history_list.addItem(f"Revision {len(self.code_history)} - {timestamp}")
@@ -1164,6 +1169,44 @@ class GoldBacktester(QMainWindow):
 
                 self.save_settings()
 
+    def get_initial_code(self):
+        try:
+            with open("prediction_v1.py", "r") as f:
+                content = f.read()
+            if "# Example usage" in content:
+                content = content.split("# Example usage")[0].strip()
+            return content
+        except Exception:
+            return (
+                "def predict(close_prices, recent_predicted_prices):\n"
+                "    # close_prices is the last 100 Close values from OHLCV data\n"
+                "    # recent_predicted_prices is the previous 20 predicted prices\n"
+                "    return close_prices[-1] + 1.0"
+            )
+
+    def on_clear_history(self):
+        if QMessageBox.question(
+            self,
+            "Confirm Clear History",
+            "Are you sure you want to clear all history and restore only the original v1 function?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        ) != QMessageBox.Yes:
+            return
+
+        original_code = self.get_initial_code()
+        timestamp = self.code_history[0][0] if self.code_history else time.strftime('%Y-%m-%d %H:%M:%S')
+        self.code_history = [(timestamp, original_code)]
+
+        self.history_list.clear()
+        self.history_list.addItem(f"Revision 1 - {timestamp}")
+
+        self.code_editor.setPlainText(original_code)
+        self.backtest_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+        self.update_btn.setStyleSheet("")
+        self.save_settings()
+
     def get_export_dataframe(self):
         if self.data_engine.df is None:
             self.on_load_data()
@@ -1186,7 +1229,7 @@ class GoldBacktester(QMainWindow):
         count = self.export_count_slider.value()
         if df_range.empty:
             return df_range
-        return df_range.tail(count)
+        return df_range.head(count)
 
     def update_export_count_label(self, value):
         self.export_count_label.setText(f"Export count: {value}")
@@ -1318,10 +1361,11 @@ class GoldBacktester(QMainWindow):
         # Filter by date range
         df_tf = df_tf[(df_tf.index >= start_dt) & (df_tf.index <= end_dt)]
 
-        # Apply max ticks limit (take the most recent rows)
+        # Apply max ticks limit (take the most recent rows plus the 100-row warmup window)
         max_ticks = self.max_ticks_slider.value() * 100
-        if len(df_tf) > max_ticks:
-            df_tf = df_tf.tail(max_ticks)
+        max_rows = max_ticks + 100
+        if len(df_tf) > max_rows:
+            df_tf = df_tf.tail(max_rows)
 
         if len(df_tf) < 11:
             labels = self.rate_labels[selected_tf]
@@ -1416,21 +1460,12 @@ class GoldBacktester(QMainWindow):
         d['failed_predictions'] = failed_predictions
 
         self.plot_items[tf].setData(d['indices'], d['actuals'])
-        # For larger backtests, avoid rendering a scatter symbol for every predicted point.
-        if len(d['indices']) > 5000:
-            self.predict_items[tf].setData(
-                x=d['predicts_x'],
-                y=d['predicts_y'],
-                pen=pg.mkPen(color='#e74c3c', width=1),
-                symbol=None
-            )
-        else:
-            self.predict_items[tf].setData(
-                x=d['predicts_x'],
-                y=d['predicts_y'],
-                symbol='o',
-                symbolBrush=list(d['colors'])
-            )
+        self.predict_items[tf].setData(
+            x=d['predicts_x'],
+            y=d['predicts_y'],
+            symbol='o',
+            symbolBrush=list(d['colors'])
+        )
 
         final_ts = acc['final_timestamp']
         account_timestamps = list(acc['timestamps'])

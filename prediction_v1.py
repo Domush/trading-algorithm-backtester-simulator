@@ -1,50 +1,74 @@
-def predict_next_number(data_points):
+def predict(prices, past):
     """
-    Predicts the next number in a sequence using a dynamic sliding 
-    window linear regression based on the most recent data.
+    Predicts the next gold price using a feedback-adjusted linear regression.
     
     Args:
-        data_points (list): A list of numerical values (accepts up to 10).
+        prices (list): Historical actual prices (up to 100).
+        past (list): The function's own previous 20 predictions.
         
     Returns:
-        float: The predicted next value in the sequence.
+        tuple: (adjusted_prediction, confidence_level)
     """
-    # Ensure we have at least 2 points to establish a trend
-    if not data_points:
-        return 0.0
-    if len(data_points) < 2:
-        return float(data_points[-1])
+    if len(prices) < 5:
+        return round(prices[-1], 2) if prices else 0.0, 50
 
-    # Use only the last 10 points as permitted by the requirements
-    window = data_points[-10:]
-    n = len(window)
+    # 1. Calculate Error Bias (Self-Correction)
+    # We look at the last few predictions to see if we are consistently high or low.
+    bias_adjustment = 0
+    if past:
+        # We align the last prediction with the current actual price
+        # past[-1] was the guess for prices[-1]
+        errors = []
+        depth = min(len(past), 5) # Look at last 5 errors
+        for i in range(1, depth + 1):
+            error = prices[-i] - past[-i]
+            errors.append(error)
+        
+        # Average bias (if positive, we are underestimating; if negative, overestimating)
+        bias_adjustment = sum(errors) / len(errors)
+
+    # 2. Linear Regression for Trend (Next 5 points)
+    n = 5
+    x = list(range(n))
+    y = prices[-n:]
     
-    # Create the X-axis (time/index) for the window
-    x_coords = list(range(n))
-    y_coords = window
+    sum_x = sum(x)
+    sum_y = sum(y)
+    sum_xx = sum(i*i for i in x)
+    sum_xy = sum(x[i] * y[i] for i in range(n))
     
-    # Calculate components for Linear Regression (y = mx + b)
-    sum_x = sum(x_coords)
-    sum_y = sum(y_coords)
-    sum_xx = sum(x**2 for x in x_coords)
-    sum_xy = sum(x * y for x, y in zip(x_coords, y_coords))
-    
-    # Calculate denominator for slope formula
+    # Calculate the Slope (the 'average of the trend')
     denominator = (n * sum_xx - sum_x**2)
+    slope = (n * sum_xy - sum_x * sum_y) / denominator if denominator != 0 else 0
     
-    # If points are identical (vertical line/division by zero), return the last value
-    if denominator == 0:
-        return float(window[-1])
+    # 3. Volatility Check (Distinct Trend Logic)
+    mean_y = sum_y / n
+    variance = sum((p - mean_y) ** 2 for p in y) / n
+    std_dev = variance ** 0.5
     
-    # Calculate Slope (m) and Intercept (b)
-    slope = (n * sum_xy - sum_x * sum_y) / denominator
-    intercept = (sum_y - slope * sum_x) / n
-    
-    # Predict the value for the next index (n)
-    prediction = (slope * n) + intercept
-    
-    return round(prediction, 2)
+    # A 'distinct trend' is where the projected 5-step movement 
+    # exceeds the current market noise (std_dev).
+    projected_movement = abs(slope * 5)
+    is_distinct = projected_movement > (std_dev * 0.75)
 
-# Example Usage:
-# sequence = [4102.85, 4104.1, 4103.95, 4104.85, 4104.84, 4101.66, 4102.33, 4102.46, 4100.37, 4099.0, 4101.26, 4099.4]
-# print(predict_next_number(sequence))
+    # 4. Final Prediction Calculation
+    if is_distinct:
+        # Prediction = Current Price + Trend Slope + Self-Correction
+        raw_prediction = prices[-1] + slope + (bias_adjustment * 0.5)
+    else:
+        # Prediction = Current Price + Self-Correction (Mean Reversion)
+        raw_prediction = prices[-1] + (bias_adjustment * 0.5)
+
+    # 5. Confidence Level
+    # Higher confidence if the trend is strong and our bias_adjustment is small (we are accurate)
+    if std_dev == 0:
+        confidence = 100
+    else:
+        # Ratio of trend strength to error/noise
+        accuracy_factor = 1 / (1 + abs(bias_adjustment))
+        trend_factor = projected_movement / std_dev
+        conf_calc = (trend_factor * accuracy_factor) * 40
+        confidence = max(1, min(100, int(conf_calc + 50)))
+
+    return round(raw_prediction, 2), confidence
+    
