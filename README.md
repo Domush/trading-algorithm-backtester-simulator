@@ -26,8 +26,9 @@ A modern, elegant desktop application for backtesting predictive Python function
   - 60-70%: 25% of capital
   - Below 60%: No position
 - **Prediction & Confidence Tuning**: Adjust prediction values and confidence levels with real-time sliders for strategy optimization.
-- **Advanced Prediction Models**: Includes multiple prediction algorithms (v1-v5) with trend analysis, moving averages, exponential smoothing, and downward trend constraints.
-- **Extended Historical Context**: Uses up to 100 historical data points for more accurate predictions.
+- **Feedback-Adjusted Prediction Model**: The default `prediction_v1.py` uses self-correcting linear regression — the engine passes its own last 20 predictions back into the function so it can compute and compensate for systematic bias.
+- **Extended Historical Context**: Uses up to 100 historical Close prices for more accurate predictions.
+- **Detailed Run Statistics**: Tracks trades entered, failed predictions, and total timespan covered per backtest run.
 
 ## Installation
 
@@ -62,8 +63,9 @@ python main.py
 3. Write or edit your predictive function in the editor. The function must follow the signature:
 
    ```python
-   def predict(ohlcv_data):
-         # ohlcv_data is a numpy array of up to 100 historical rows (OHLCV format)
+   def predict(close_prices, recent_predicted_prices):
+         # close_prices: list of up to 100 recent Close values (most recent last)
+         # recent_predicted_prices: list of the last 20 values returned by this function
          # Must return a tuple: (predicted_price, confidence_percentage)
          # Example:
          predicted_price = 1950.50
@@ -89,6 +91,7 @@ python main.py
 - **Stop**: Enabled only while a backtest is in progress.
 - **Update / Validate**: Compiles the current code and saves it to history if changed.
 - **Backtest History**: Click any revision to revert the editor to that version.
+- **Clear All History**: Resets the history list to the original v1 function (with confirmation).
 - **Prediction Offset Slider**: Adjust predictions by -10.0 to +10.0 points.
 - **Confidence Offset Slider**: Adjust confidence levels by -80 to +80 percentage points.
 - **Sell Above Max Checkbox**: Automatically reduce positions that exceed maximum position value.
@@ -98,11 +101,7 @@ python main.py
 - `main.py`: Main application entry point and UI logic with account simulation.
 - `data_engine.py`: Data loading and resampling engine.
 - `highlighter.py`: Syntax highlighter for the code editor.
-- `prediction_v1.py`: Basic prediction model (baseline).
-- `prediction_v2_1_10.py`: Intermediate prediction model.
-- `prediction_v3.py`: Local linear regression-based prediction with dynamic shift adjustment.
-- `prediction_v4.py`: Advanced multi-method ensemble with trend analysis, moving averages, and confidence scoring.
-- `prediction_v5.py`: Conservative prediction model with downward trend constraints.
+- `prediction_v1.py`: Feedback-adjusted linear regression prediction model (default starting template).
 - `get_last_30_closes.py`: Utility script to fetch recent closing prices for any timeframe.
 - `data/`: Directory for historical datasets (CSV and Feather formats).
 - `PLAN.md`: Development roadmap and feature planning.

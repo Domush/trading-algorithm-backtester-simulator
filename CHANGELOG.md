@@ -5,11 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-06-29
+## [1.2.0] - 2026-06-30
 
 ### Added
 
-- Added screenshot image to README for visual reference of the application.
+- **Feedback-Adjusted Prediction Engine**: `prediction_v1.py` rewritten with a self-correcting linear regression algorithm. The prediction function now receives a rolling history of its own last 20 predictions, computes a bias adjustment from recent errors, and applies it to improve accuracy over time.
+- **Clear All History Button**: New button in the History panel resets code history to the original v1 function, with a confirmation dialog before clearing.
+- **Trades & Failed Predictions Tracking**: Backtests now count the number of trades entered and the number of failed predictions (predicted up but price went down), emitted via expanded progress and finished signals.
+- **Timespan Reporting**: On backtest completion, the elapsed time covered by all ticks is calculated and reported (e.g., "2d 4h 30m") in the finished signal.
+- **Configurable Tick Size / Tick Value**: `BacktestWorker` now accepts `tick_size` and `tick_value` as constructor parameters, replacing the previous hard-coded values.
+- **Prediction & Confidence Offset Spinboxes**: Numeric spin boxes (`QDoubleSpinBox`) added alongside the existing sliders for precise offset entry, with `set_pred_offset()` and `set_conf_offset()` helpers to keep them in sync.
+- **Max Ticks Settings Persistence**: The max ticks slider value is now saved to and restored from application settings.
+
+### Changed
+
+- **Prediction Function Signature**: The `predict` function contract changed from `predict(ohlcv_data)` (numpy OHLCV array) to `predict(close_prices, recent_predicted_prices)`, where `close_prices` is a plain Python list of up to 100 recent Close values and `recent_predicted_prices` is the last 20 values returned by the function itself.
+- **Prediction Modules Consolidated**: `prediction_v2_1_10.py`, `prediction_v3.py`, `prediction_v4.py`, and `prediction_v5.py` removed. All algorithmic logic is now consolidated into the rewritten `prediction_v1.py`.
+- **Max Ticks Slider Range**: Range changed from 10–30 (default 30) to 1–20 (default 5), keeping default backtests shorter and faster.
+- **History Deduplication**: Code revisions are now deduplicated against the entire history (previously only against the last entry), preventing identical functions from appearing multiple times.
+- **Project Renamed**: Application window title updated to "Trading Algorithm Backtester Pro".
+- **Progress Signal Expanded**: Now emits `(timeframe, timestamp, actual, predicted, confidence_pct, is_success, invested, account_value, total_count, trades_count, failed_predictions)`.
+- **Finished Signal Expanded**: Now emits `(timeframe, success_rate, total_ticks, timespan, trades_count, failed_predictions)`.
+
+### Removed
+
+- `prediction_v2_1_10.py`: Intermediate prediction model.
+- `prediction_v3.py`: Local linear regression with dynamic shift adjustment.
+- `prediction_v4.py`: Multi-method ensemble prediction model.
+- `prediction_v5.py`: Conservative downward-trend-constrained prediction model.
 
 ## [1.1.0] - 2026-02-12
 
