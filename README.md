@@ -1,6 +1,6 @@
 # Trading Algorithm Backtester Pro
 
-<img width="1961" height="1400" alt="image" src="https://github.com/user-attachments/assets/37f42abb-cdfd-4a46-9dc7-4d6915bef0a4" />
+<img width="1961" height="1400" alt="image" src="https://github.com/user-attachments/assets/e82e827b-c11d-409a-99d3-0e5750a77bcd" />
 
 A modern, elegant desktop application for backtesting predictive Python functions on historical prices with advanced account simulation and confidence-based trading strategies.
 
